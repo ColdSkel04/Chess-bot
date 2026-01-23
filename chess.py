@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import pygame
+import bot
+import time
 
 SQUARE_SIZE = 80
 PIECE_WIDTH = 45
@@ -157,7 +159,7 @@ class ChessGame:
         self.board_offset_x = (self.screen_width - SQUARE_SIZE * 8) // 2
         self.board_offset_y = (self.screen_height - SQUARE_SIZE * 8) // 2
         
-        self.board = [[None for _ in range(8)] for _ in range(8)]
+        self.board = [[None for i in range(8)] for i in range(8)]
         self.selected_piece = None
         self.valid_moves = []
         self.current_turn = 'white'
@@ -166,6 +168,7 @@ class ChessGame:
         self.last_move = None
         self.en_passant_target = None
         self.promoting_pawn = None
+        self.turns = 0
         
         self.setup_board()
     
@@ -327,13 +330,15 @@ class ChessGame:
         if 0 <= row < 8 and 0 <= col < 8:
             return (row, col)
         return None
-    
+
     def handle_click(self, pos):
         """Handle mouse click on the board"""
         if self.game_over:
             return
         
-        if self.current_turn == "black":
+        if self.current_turn == 'black':
+            bot.ai(self)
+            self.current_turn == 'white'
             return
         
         # Handle promotion selection
@@ -373,7 +378,8 @@ class ChessGame:
         """Make a move and handle special moves"""
         old_row, old_col = piece.position
         new_row, new_col = new_pos
-        
+        piece.has_moved = True
+
         # Handle castling
         if piece.type == 'king' and abs(new_col - old_col) == 2:
             # Move rook
@@ -511,7 +517,6 @@ class ChessGame:
                     x = self.board_offset_x + col * SQUARE_SIZE + (SQUARE_SIZE - PIECE_WIDTH) // 2
                     y = self.board_offset_y + row * SQUARE_SIZE + (SQUARE_SIZE - PIECE_HEIGHT) // 2
                     self.screen.blit(piece.image, (x, y))
-        
         # Draw promotion dialog
         if self.promoting_pawn:
             self.draw_promotion_dialog()
@@ -534,7 +539,6 @@ class ChessGame:
             text = font.render(turn_text, True, (255, 255, 255))
             text_rect = text.get_rect(center=(self.screen_width // 2, self.board_offset_y - 50))
             self.screen.blit(text, text_rect)
-        
         pygame.display.flip()
     
     def draw_promotion_dialog(self):
@@ -581,9 +585,14 @@ class ChessGame:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
-                elif event.type == pygame.MOUSEBUTTONDOWN:
+                elif event.type == pygame.MOUSEBUTTONDOWN and self.current_turn == 'white':
                     if event.button == 1:
                         self.handle_click(event.pos)
+                        self.turns += 1
+                if self.current_turn == 'black':
+                    ai = bot.AI(self, 'black')
+                    ai.play(self)
+                    self.turns += 1
             self.draw()
             self.clock.tick(60)
         pygame.quit()
