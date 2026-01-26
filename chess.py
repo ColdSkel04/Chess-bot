@@ -9,12 +9,14 @@ PIECE_WIDTH = 45
 PIECE_HEIGHT = 75
 
 class Piece:
+
     def __init__(self, color, piece_type, position):
         self.color = color
         self.type = piece_type
         self.position = position
         self.has_moved = False
         self.image = self.load_image()
+        self.value = self.get_value()
     
     def load_image(self):
         prefix = 'W' if self.color == 'white' else 'B'
@@ -22,6 +24,17 @@ class Piece:
         img = pygame.image.load(f"assets/pieces/{prefix}_{type_name}.png")
         return pygame.transform.scale(img, (PIECE_WIDTH, PIECE_HEIGHT))
     
+    def get_value(self):
+        if self.type == 'pawn':
+            return 1
+        elif self.type == 'bishop' or self.type == 'knight':
+            return 3
+        elif self.type == 'rook':
+            return 5
+        elif self.type == 'queen':
+            return 9
+        return 1
+
     def get_pseudo_legal_moves(self, board):
         """Get moves without considering check"""
         moves = []
@@ -147,6 +160,7 @@ class Piece:
 
 
 class ChessGame:
+
     def __init__(self):
         pygame.init()
         info = pygame.display.Info()
@@ -168,7 +182,10 @@ class ChessGame:
         self.last_move = None
         self.en_passant_target = None
         self.promoting_pawn = None
+
         self.turns = 0
+        self.blacks_value = 39
+        self.whites_value = 39
         
         self.setup_board()
     
