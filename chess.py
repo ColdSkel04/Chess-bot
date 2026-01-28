@@ -25,7 +25,7 @@ class Piece:
         return pygame.transform.scale(img, (PIECE_WIDTH, PIECE_HEIGHT))
     
     def get_value(self):
-        if self.type == 'pawn':
+        if self.type == 'pawn' or self.type == 'king':
             return 1
         elif self.type == 'bishop' or self.type == 'knight':
             return 3
@@ -183,9 +183,10 @@ class ChessGame:
         self.en_passant_target = None
         self.promoting_pawn = None
 
-        self.turns = 0
+        self.turns = 1
         self.blacks_value = 39
         self.whites_value = 39
+        self.color = 'white'
         
         self.setup_board()
     
@@ -359,7 +360,7 @@ class ChessGame:
             return
         
         # Handle promotion selection
-        if self.promoting_pawn:
+        if self.promoting_pawn and self.color == 'white':
             self.handle_promotion_click(pos)
             return
         
@@ -450,6 +451,49 @@ class ChessGame:
         
         # Switch turn
         self.current_turn = 'black' if self.current_turn == 'white' else 'white'
+        self.turns += 1
+
+    def make_test_move(self, piece, new_pos):
+        """Make a move and handle special moves"""
+        old_row, old_col = piece.position
+        new_row, new_col = new_pos
+
+        # Handle castling
+        if piece.type == 'king' and abs(new_col - old_col) == 2:
+            # Move rook
+            if new_col > old_col:  # Kingside
+                rook = self.board[old_row][7]
+                self.board[old_row][7] = None
+                self.board[old_row][5] = rook
+                rook.position = (old_row, 5)
+                rook.has_moved = True
+            else:  # Queenside
+                rook = self.board[old_row][0]
+                self.board[old_row][0] = None
+                self.board[old_row][3] = rook
+                rook.position = (old_row, 3)
+                rook.has_moved = True
+        
+        # Handle en passant
+        if piece.type == 'pawn' and self.en_passant_target == new_pos:
+            # Remove the captured pawn
+            direction = -1 if piece.color == 'white' else 1
+            captured_pawn_row = new_row - direction
+            self.board[captured_pawn_row][new_col] = None
+        
+        # Move the piece
+        self.board[old_row][old_col] = None
+        self.board[new_row][new_col] = None
+        self.board[new_row][new_col] = piece
+        piece.position = new_pos
+        
+        # Set en passant target
+        if piece.type == 'pawn' and abs(new_row - old_row) == 2:
+            direction = -1 if piece.color == 'white' else 1
+            self.en_passant_target = (old_row + direction, old_col)
+        else:
+            self.en_passant_target = None
+        self.last_move = (old_pos := (old_row, old_col), new_pos)
     
     def handle_promotion_click(self, pos):
         """Handle clicking on promotion choice"""
@@ -541,7 +585,7 @@ class ChessGame:
         # Draw turn indicator or game over message
         font = pygame.font.Font(None, 48)
         if self.game_over:
-            text = font.render(f"GAME OVER! {self.winner.capitalize()} Wins!", True, (255, 50, 50))
+            text = font.render(f"GAME OVER! {self.winner} Wins!", True, (255, 50, 50))
             text_rect = text.get_rect(center=(self.screen_width // 2, self.board_offset_y - 60))
             
             bg_rect = text_rect.inflate(40, 20)
@@ -550,7 +594,10 @@ class ChessGame:
             
             self.screen.blit(text, text_rect)
         else:
-            turn_text = f"{self.current_turn.capitalize()}'s Turn"
+            if self.current_turn == 'white':
+                turn_text = "Player's Turn"
+            else:
+                turn_text = "Clifford's Turn"
             if self.is_in_check(self.current_turn):
                 turn_text += " - CHECK!"
             text = font.render(turn_text, True, (255, 255, 255))
@@ -605,11 +652,12 @@ class ChessGame:
                 elif event.type == pygame.MOUSEBUTTONDOWN and self.current_turn == 'white':
                     if event.button == 1:
                         self.handle_click(event.pos)
-                        self.turns += 1
                 if self.current_turn == 'black':
+                    self.draw()
+                    time.sleep(1)
                     ai = bot.AI(self, 'black')
                     ai.play(self)
-                    self.turns += 1
+                    self.would_win = False
             self.draw()
             self.clock.tick(60)
         pygame.quit()
