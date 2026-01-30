@@ -205,35 +205,20 @@ class ChessGame:
     def setup_board(self):
         """Initialize the chess board with pieces"""
         # Pawns
-        for col in range(8):
-            self.board[1][col] = Piece('black', 'pawn', (1, col))
-            self.board[6][col] = Piece('white', 'pawn', (6, col))
-        
+
         # Rooks
-        self.board[0][0] = Piece('black', 'rook', (0, 0))
-        self.board[0][7] = Piece('black', 'rook', (0, 7))
-        self.board[7][0] = Piece('white', 'rook', (7, 0))
-        self.board[7][7] = Piece('white', 'rook', (7, 7))
+        self.board[7][3] = Piece('white', 'rook', (7, 3))
         
         # Knights
-        self.board[0][1] = Piece('black', 'knight', (0, 1))
-        self.board[0][6] = Piece('black', 'knight', (0, 6))
-        self.board[7][1] = Piece('white', 'knight', (7, 1))
-        self.board[7][6] = Piece('white', 'knight', (7, 6))
         
         # Bishops
-        self.board[0][2] = Piece('black', 'bishop', (0, 2))
-        self.board[0][5] = Piece('black', 'bishop', (0, 5))
-        self.board[7][2] = Piece('white', 'bishop', (7, 2))
-        self.board[7][5] = Piece('white', 'bishop', (7, 5))
         
         # Queens
-        self.board[0][3] = Piece('black', 'queen', (0, 3))
-        self.board[7][3] = Piece('white', 'queen', (7, 3))
+        self.board[5][4] = Piece('black', 'queen', (5, 4))
         
         # Kings
-        self.board[0][4] = Piece('black', 'king', (0, 4))
-        self.board[7][4] = Piece('white', 'king', (7, 4))
+        self.board[0][0] = Piece('black', 'king', (0, 0))
+        self.board[7][6] = Piece('white', 'king', (7, 6))
     
     def get_white_pieces(self):
 
@@ -457,7 +442,7 @@ class ChessGame:
             self.winner = 'nobody'
             self.game_over = True
             return 
-    
+
     def make_move(self, piece, new_pos):
         """Make a move and handle special moves"""
         old_row, old_col = piece.position
@@ -785,7 +770,7 @@ class ChessGame:
     # NEW: Draw captured pieces
     def draw_captured_pieces(self):
         """Draw the captured pieces on the sides of the board"""
-        piece_size = 50
+        piece_size = 30
         padding = 5
         start_x_left = self.board_offset_x - 250
         start_x_right = self.board_offset_x + SQUARE_SIZE * 8 - 820
@@ -799,7 +784,7 @@ class ChessGame:
         
         for i, piece in enumerate(self.white_captured):
             y_pos = start_y + (i * (piece_size + padding))
-            img = pygame.transform.scale(piece.image, (piece_size - 5, piece_size + 10))
+            img = pygame.transform.scale(piece.image, (piece_size, piece_size))
             self.screen.blit(img, (start_x_left, y_pos))
         
         # Draw black's captures (right side)
@@ -808,7 +793,7 @@ class ChessGame:
         
         for i, piece in enumerate(self.black_captured):
             y_pos = start_y + (i * (piece_size + padding))
-            img = pygame.transform.scale(piece.image, (piece_size - 5, piece_size + 10))
+            img = pygame.transform.scale(piece.image, (piece_size, piece_size))
             self.screen.blit(img, (start_x_right, y_pos))
     
     # NEW: Draw undo button
@@ -885,9 +870,10 @@ class ChessGame:
                         self.handle_click(event.pos)
                 if self.current_turn == 'black' and not self.game_over:
                     self.draw()
-                    #time.sleep(0.5)
+                    time.sleep(0.5)
                     ai = bot.AI(self, 'black')
                     ai.play(self)
+                    self.would_win = False
             self.draw()
             self.clock.tick(60)
         pygame.quit()
