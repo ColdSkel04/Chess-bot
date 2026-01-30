@@ -14,9 +14,10 @@ class AI:
         self.best_move = None
         self.value = self.get_value(game)
         self.priority = 0
-        self.total_coverage = 0
+        self.best_coverage = 0
         self.coverage = 0
         self.debug = 'No debug.'
+        self.phase = self.set_phase(game)
 
     def get_white_pieces(self, game):
 
@@ -43,9 +44,9 @@ class AI:
     def get_value(self, game):
 
         if self.color == 'black':
-            return game.blacks_value - game.whites_value
+            return game.blacks_value
         else:
-            return game.whites_value - game.blacks_value
+            return game.whites_value
 
     def get_cell_content(self, game, cell):
 
@@ -75,6 +76,13 @@ class AI:
             return 'white'
         else:
             return 'black'
+        
+    def set_phase(self, game):
+        
+        for piece in self.get_team(game):
+            if piece.type in ['king', 'bishop', 'knight'] and not piece.has_moved:
+                return 'opening'
+        return 'middle'
         
     def find_piece_to_help(self, game):
 
@@ -117,10 +125,11 @@ class AI:
         self.opening(game)
         self.mid_game(game)
         self.get_random_move(game)
-
+    
     def opening(self, game):
 
-        is_opening_done = True
+        if self.phase != 'opening':
+            return
         if game.turns <= 2:
             if game.board[4][3] != None or game.board[4][5] != None:
                 self.best_piece = self.get_cell_content(game, (1, 3))
@@ -133,13 +142,7 @@ class AI:
                 self.debug = 'First move.'
                 return
         for piece in self.get_team(game):
-            if not piece.has_moved and (piece.type == 'knight' or piece.type == 'bishop'):
-                is_opening_done = False
-                break
-        if is_opening_done:
-            return
-        for piece in self.get_team(game):
-            if piece.has_moved:
+            if piece.has_moved or piece.type == 'queen':
                 continue
             moves = game.get_legal_moves(piece)
             for move in moves:
@@ -151,14 +154,27 @@ class AI:
                     self.find_good_knight_move(game, piece, move)
                 if piece.type == 'bishop':
                     self.find_good_bishop_move(game, piece, move)
-                
+        if self.best_move:
+            return
+        for piece in self.get_team(game):
+            if piece.type != 'pawn':
+                continue
+            moves = game.get_legal_moves(piece)
+            for move in moves:
+                if self.is_move_safe(game, piece, move):
+                    self.best_piece, self.best_move = piece, move
+                    self.debug = 'Random pawn move.'
             
     def mid_game(self, game):
 
+        if self.phase != 'middle':
+            return
         vulnerable_piece = self.find_piece_to_help(game)
         if self.best_move or not vulnerable_piece:
             return
         for piece in self.team:
+            if piece.type != 'pawn' and game.turns <= 6:
+                continue
             if (piece.type == 'rook' and piece.has_moved == False) or (piece.type == 'king' 
             and piece.has_moved == False and not game.is_in_check(self.color)):
                 continue
@@ -166,8 +182,12 @@ class AI:
             for move in moves:
                 if not self.is_move_safe(game, piece, move) or len(self.get_team(game)) <= 1:
                    continue
-                if (self.will_move_help(game, piece, vulnerable_piece, move)):
+                if piece.type == 'rook':
+                    self.find_good_rook_move(game, piece, move)
+                if (self.will_move_help(game, piece, vulnerable_piece, move)) and \
+                self.priority < vulnerable_piece.value:
                     self.best_piece, self.best_move = piece, move
+                    self.priority = vulnerable_piece.value
                     self.debug = 'Supporting ' + vulnerable_piece.type + ' in ' + str(vulnerable_piece.position) + '.'
 
     def end_game(self, game):
@@ -180,8 +200,10 @@ class AI:
         for piece in self.get_team(game):
             moves = game.get_legal_moves(piece)
             for move in moves:
-                if self.is_move_safe(game, piece, move):
+                if self.is_move_safe(game, piece, move) and \
+                len(game.get_legal_moves(piece)) > self.coverage:
                     self.best_piece, self.best_move = piece, move
+                    self.coverage = len(game.get_legal_moves(piece))
                     self.debug = 'Doing a random but safe move.'
                     return
         for piece in self.get_team(game):
@@ -206,7 +228,7 @@ class AI:
                 self.best_piece, self.best_move = piece, move
                 self.coverage = len(game.get_legal_moves(piece))
                 self.priority = 3
-                self.debug = 'Knight moving to cover more space.'
+                self.debug = 'Knight moves to cover more space.'
     
     def find_good_bishop_move(self, game, piece, move):
 
@@ -221,7 +243,7 @@ class AI:
             game.board[move[0]][move[1]] = prev_content
             self.coverage = new_covering
             self.best_piece, self.best_move = piece, move
-            self.debug = 'Bishop moving to cover more space.'
+            self.debug = 'Bishop moves to cover more space.'
             self.priority = 3
         else:
             game.make_test_move(piece, prev_pos)
@@ -240,27 +262,44 @@ class AI:
             self.priority = 1
             self.debug = 'Pawn supports ' + vulnerable.type + '.'
         for ally in self.get_team(game):
-            if ally.type in ['knight', 'bishop', 'queen']:
+            if ally.type in ['knight', 'bishop']:
                 prev_coverage += len(game.get_legal_moves(ally))
-        game .make_test_move(piece, move)
+        game.make_test_move(piece, move)
         for ally in self.get_team(game):
-            if ally.type in ['knight', 'bishop', 'queen']:    
-                coverage += len(game.get_legal_moves(ally))
-        if coverage > prev_coverage and coverage > self.total_coverage:
+            if ally.type in ['knight', 'bishop']:
+                if ally.type == 'knight':
+                    moves = game.get_legal_moves(ally)
+                    for move in moves:
+                        if move[0] in [0, 7] or move[1] in [0, 7]:
+                            continue
+                        else:
+                            coverage += 1
+                else:
+                    coverage += len(game.get_legal_moves(ally))
+        if coverage > prev_coverage and coverage > self.best_coverage:
             self.best_piece, self.best_move = piece, move
-            self.total_coverage = coverage
+            self.best_coverage = coverage
             self.priority = 1
             self.debug = 'Pawn opens space for allies.'
         game.make_test_move(piece, prev_cell)
         game.board[move[0]][move[1]] = prev_content
+
+    def find_good_rook_move(self, game, piece, move):
+
+        coverage = len(game.get_legal_moves(piece))
+
+        if coverage > self.coverage and self.priority < 5:
+            self.coverage = coverage
+            self.best_piece, self.best_move = piece, move
+            self.priority = 5
+            self.debug = 'Rook moving to cover more space.'
 
     def get_cell_data(self, game, cell):
 
         # rank 0: AMOUNT of enemies covering the cell (1 pawn + 1 rook = 2).
         # rank 1: VALUE of enemies covering the cell (1 pawn + 1 rook = 6).
         # rank 2-3: same thing but for allies.
-        # rank 4: VALUE of the weakest enemy attacking the cell.
-        # rank 5: array of enemies attacking the cell.
+        # rank 4-5: VALUE of the weakest enemy / ally attacking the cell.
 
         data = [0, 0, 0, 0, None, []]
 
@@ -273,7 +312,6 @@ class AI:
                 for move in moves:
                     if move == cell:
                         if piece.color != self.color:
-                            data[5].append(piece)
                             data[0] += 1
                             data[1] += piece.value
                             if not data[4] or piece.value < data[4]:
@@ -281,6 +319,8 @@ class AI:
                         if piece.color == self.color:
                             data[2] += 1
                             data[3] += piece.value
+                            if not data[5] or piece.value < data[5]:
+                                data[5] = piece.value
         return data
 
     def is_move_safe(self, game, piece, move):
@@ -289,15 +329,38 @@ class AI:
         original_content = self.get_cell_content(game, move)
         already_harmed = []
 
+        game.make_test_move(piece, move)
+        if original_content and (original_content.value > piece.value \
+        or not self.is_in_danger(game, piece)):
+            game.make_test_move(piece, original_cell)
+            game.board[move[0]][move[1]] = original_content
+            return True
+        if self.can_enemy_checkmate(game):
+            game.make_test_move(piece, original_cell)
+            game.board[move[0]][move[1]] = original_content
+            return False
         for ally in self.get_team(game):
             if self.is_in_danger(game, ally):
                 already_harmed.append(ally)
-        game.make_test_move(piece, move)
         for ally in self.get_team(game):
             if self.is_in_danger(game, ally) and ally not in already_harmed:
                 game.make_test_move(piece, original_cell)
                 game.board[move[0]][move[1]] = original_content
                 return False
+        for enemy in self.get_enemies(game):
+            moves = game.get_legal_moves(enemy)
+            prev_cell = enemy.position
+            for move_en in moves:
+                prev_content = self.get_cell_content(game, move_en)
+                game.make_test_move(enemy, move_en)
+                if self.is_in_danger(game, piece):
+                    game.make_test_move(enemy, prev_cell)
+                    game.board[move_en[0]][move_en[1]] = prev_content
+                    game.make_test_move(piece, original_cell)
+                    game.board[move[0]][move[1]] = original_content
+                    return False
+                game.make_test_move(enemy, prev_cell)
+                game.board[move_en[0]][move_en[1]] = prev_content
         if self.is_in_danger(game, piece):
             game.make_test_move(piece, original_cell)
             game.board[move[0]][move[1]] = original_content
@@ -310,13 +373,12 @@ class AI:
     def is_in_danger(self, game, piece):
 
         data = self.get_cell_data(game, piece.position)
-        if data[0] > 0 and data[2] == 0:
-            return True
-        if data[4] and ((piece.value > data[4]) or \
+        if data[4] and (not data[2] or (piece.value > data[4]) or \
         (piece.value >= data[4] and self.value < 0)):
             return True
-        if (data[0] == 0 or (data[1] < data[3] and data[0] <= data[2]) or \
-        (data[1] <= data[3] and data[0] <= data[2] and self.value >= 0)):
+        if (data[0] == 0 or (data[0] <= data[2]) or \
+        (data[0] <= data[2] and self.value >= 0) or \
+        (data[5] < data[4])):
             return False
         return True
     
@@ -354,18 +416,22 @@ class AI:
     def attack(self, game, piece, moves):
 
         for move in moves:
-            if not self.is_move_safe(game, piece, move):
-                continue
             content = self.get_cell_content(game, move)
-            if content and piece.type == 'pawn' and content.type == 'pawn':
+            data = self.get_cell_data(game, piece.position)
+            if content and piece.type == 'pawn' and content.type == 'pawn' \
+            and not self.priority and data[5] == 1:
                 self.best_piece, self.best_move = piece, move
-                self.priority = content.value
+                self.priority = 1
                 self.debug = 'Pawn attacks to prevent another attack.'
+            if not self.is_move_safe(game, piece, move) and \
+            content and content.value <= piece.value:
+                continue
             if content and content.value > self.priority:
                 self.best_piece, self.best_move = piece, move
                 self.priority = content.value
                 self.debug = 'Attacking ' + content.type + '.'
-            self.look_for_fork(game, piece, move)
+            if self.is_move_safe(game, piece, move):
+                self.look_for_fork(game, piece, move)
 
     def look_for_fork(self, game, piece, move):
 
@@ -412,21 +478,24 @@ class AI:
         for ally in self.get_team(game):
             moves = game.get_legal_moves(ally)
             for move in moves:
+                if ally.type == 'king' and not ally.has_moved:
+                    continue
                 if not self.is_move_safe(game, ally, move):
                     continue
-                #if ally.type == 'knight' and (move[0] in [0, 7] or move[1] in [0, 7]):
-                #    continue
-                if self.will_move_protect(game, ally, piece, move) and \
-                self.priority < piece.value:
+                if ally.type == 'knight' and (move[0] in [0, 7] or move[1] in [0, 7]):
+                    continue
+                if self.will_move_protect(game, ally, piece, move):
                     content = self.get_cell_content(game, move)
-                    if content:
+                    if content and self.priority < piece.value + content.value:
                         self.priority = piece.value + content.value
                         self.debug =  piece.type + ' in danger, attacking.'
-                    else:
+                        self.best_piece, self.best_move = ally, move
+                        doomed = False
+                    elif self.priority < piece.value:
                         self.priority = piece.value
                         self.debug = piece.type + ' in danger, trying to help it.'
-                    doomed = False
-                    self.best_piece, self.best_move = ally, move
+                        self.best_piece, self.best_move = ally, move
+                        doomed = False
         if doomed:
             moves = game.get_legal_moves(piece)
             for move in moves:
@@ -436,6 +505,45 @@ class AI:
                     self.priority = content.value
                     self.debug = piece.type + ' doomed, sacrificing it.'
                 
+    def check_promote(self, game, piece):
+
+        if piece.type != 'pawn':
+            return
+        if piece.color == 'black' and piece.position[0] != 6:
+            return
+        if piece.color == 'white' and piece.position[0] != 1:
+            return
+        moves = game.get_legal_moves(piece)
+        for move in moves:
+            if self.is_move_safe(game, piece, move) and self.priority < 9:
+                self.best_piece, self.best_move = piece, move
+                self.priority = 9
+
+    def can_enemy_checkmate(self, game):
+
+        for piece in self.get_enemies(game):
+            original_cell = piece.position
+            moves = game.get_legal_moves(piece)
+            for move in moves:
+                original_content = self.get_cell_content(game, move)
+                game.make_test_move(piece, move)
+                if not game.is_in_check(self.color):
+                    game.make_test_move(piece, original_cell)
+                    game.board[move[0]][move[1]] = original_content
+                    continue
+                for team in self.get_team(game):
+                    moves_team = game.get_legal_moves(team)
+                    if len(moves_team) != 0:
+                        team_safe = True
+                        break
+                if team_safe == False:
+                    game.make_test_move(piece, original_cell)
+                    game.board[move[0]][move[1]] = original_content
+                    return True
+                game.make_test_move(piece, original_cell)
+                game.board[move[0]][move[1]] = original_content
+        return False
+
     def look_for_checkmate(self, game):
 
         enemy_safe = False
@@ -485,7 +593,6 @@ class AI:
                     game.board[move[0]][move[1]] = original_content
                     self.best_piece, self.best_move = piece, move
                     self.debug = 'Avoiding checkmate.'
-                    return
                 game.make_test_move(piece, original_cell)
                 game.board[move[0]][move[1]] = original_content
                     
@@ -514,7 +621,7 @@ class AI:
             game.winner = 'Player'
             return
         game.make_move(self.best_piece, self.best_move)
-        self.debug += ' Priority level: ' + str(self.priority) + '.'
+        self.debug += ' Phase: ' + str(self.phase) + '.'
         print(self.debug)
         return
     
@@ -628,7 +735,5 @@ class AI:
                     moves.append((new_row, new_col))
         return moves
 
-# Don't understand if moving will expose another piece.
 # Don't know how to checkmate in endgames.
-# Piece can cover instead of capturing for free.
-# Don't know if not capturing rn will end up in a bad trade.
+# Don't understand pieces behing others.

@@ -184,8 +184,8 @@ class ChessGame:
         self.promoting_pawn = None
 
         self.turns = 1
-        self.blacks_value = 39
-        self.whites_value = 39
+        self.blacks_value = self.get_value('black')
+        self.whitess_value = self.get_value('white')
         self.color = 'white'
         self.color_ai = 'black'
         self.blacks = self.get_black_pieces()
@@ -235,6 +235,17 @@ class ChessGame:
         self.board[0][4] = Piece('black', 'king', (0, 4))
         self.board[7][4] = Piece('white', 'king', (7, 4))
     
+    def get_value(self, color):
+
+        value = 0
+        if color == 'black':
+            team = self.get_black_pieces()
+        else:
+            team = self.get_white_pieces()
+        for piece in team:
+            value += piece.value
+        return value
+
     def get_white_pieces(self):
 
         white_pieces = []
@@ -644,10 +655,7 @@ class ChessGame:
         
         # Handle en passant
         if piece.type == 'pawn' and self.en_passant_target == new_pos:
-            # Remove the captured pawn
-            direction = -1 if piece.color == 'white' else 1
-            captured_pawn_row = new_row - direction
-            self.board[captured_pawn_row][new_col] = None
+            return
         
         # Move the piece
         self.board[old_row][old_col] = None
@@ -792,6 +800,11 @@ class ChessGame:
         start_y = self.board_offset_y
         
         font = pygame.font.Font(None, 28)
+        if self.color == 'white':
+            label = font.render("Player value:  " + str(self.get_value('white') - self.get_value('black')), True, (255, 255, 255))
+        else:
+            label = font.render("Player value:  " + str(self.get_value('black') - self.get_value('white')), True, (255, 255, 255))
+        self.screen.blit(label, (start_x_left - 20, start_y - 80))
         
         # Draw white's captures (left side)
         label = font.render("White captured:", True, (255, 255, 255))
