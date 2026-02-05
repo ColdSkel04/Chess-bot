@@ -2,7 +2,9 @@
 
 import pygame
 import bot
+import machine
 import time
+import sys
 
 SQUARE_SIZE = 80
 PIECE_WIDTH = 45
@@ -184,11 +186,11 @@ class ChessGame:
         self.promoting_pawn = None
 
         self.turns = 1
-        self.blacks_value = self.get_value('black')
-        self.whitess_value = self.get_value('white')
+        self.blacks_value = 0  # Will be calculated after setup
+        self.whites_value = 0  # Will be calculated after setup
         self.color = 'white'
         self.color_ai = 'black'
-        self.blacks = self.get_black_pieces()
+        self.mode = sys.argv[1]
         
         # NEW: Move history for undo functionality
         self.move_history = []
@@ -201,6 +203,11 @@ class ChessGame:
         self.undo_button_rect = None
         
         self.setup_board()
+        
+        # Calculate initial values after setup
+        self.blacks_value = self.get_value('black')
+        self.whites_value = self.get_value('white')
+        self.blacks = self.get_black_pieces()
     
     def setup_board(self):
         """Initialize the chess board with pieces"""
@@ -236,7 +243,6 @@ class ChessGame:
         self.board[7][4] = Piece('white', 'king', (7, 4))
     
     def get_value(self, color):
-
         value = 0
         if color == 'black':
             team = self.get_black_pieces()
@@ -247,9 +253,7 @@ class ChessGame:
         return value
 
     def get_white_pieces(self):
-
         white_pieces = []
-
         for row in range(8):
             for col in range(8):
                 piece = self.board[row][col]
@@ -258,9 +262,7 @@ class ChessGame:
         return white_pieces
 
     def get_black_pieces(self):
-
         black_pieces = []
-
         for row in range(8):
             for col in range(8):
                 piece = self.board[row][col]
@@ -404,7 +406,7 @@ class ChessGame:
             self.undo_move()
             return
         
-        if self.current_turn == 'black':
+        if self.current_turn == self.color_ai:
             return
         
         # Handle promotion selection
@@ -441,7 +443,6 @@ class ChessGame:
                 self.valid_moves = self.get_legal_moves(piece)
     
     def check_if_game_is_over(self):
-
         checkmate = True
         for piece in self.get_black_pieces():
             if len(self.get_legal_moves(piece)) != 0:
@@ -484,14 +485,14 @@ class ChessGame:
             'en_passant_target': self.en_passant_target,
             'castling_rook': None,
             'castling_rook_old_pos': None,
+            'castling_rook_had_moved': None,
             'en_passant_captured': None,
+            'en_passant_captured_pos': None,
             'promotion_from': None
         }
-        
-        piece.has_moved = True
 
         # Handle castling
-        if piece.type == 'king' and abs(new_col - old_col) == 2:
+        if piece.type == 'king' and abs(new_col - old_col) == 2 and not piece.has_moved:
             # Move rook
             if new_col > old_col:  # Kingside
                 rook = self.board[old_row][7]
@@ -539,6 +540,7 @@ class ChessGame:
         self.board[old_row][old_col] = None
         self.board[new_row][new_col] = piece
         piece.position = new_pos
+        piece.has_moved = True
         
         # Set en passant target
         if piece.type == 'pawn' and abs(new_row - old_row) == 2:
@@ -547,8 +549,7 @@ class ChessGame:
         else:
             self.en_passant_target = None
         
-        piece.has_moved = True
-        self.last_move = (old_pos := (old_row, old_col), new_pos)
+        self.last_move = ((old_row, old_col), new_pos)
         
         # Check for pawn promotion
         if piece.type == 'pawn' and (new_row == 0 or new_row == 7):
@@ -558,7 +559,12 @@ class ChessGame:
                 self.move_history.append(move_data)
                 return
             else:
-                self.board[new_row][new_col] = Piece(self.color_ai, 'queen', (new_row, new_col))
+                # FIXED: AI auto-promotes to queen by changing the piece type, not creating new piece
+                piece.type = 'queen'
+                piece.image = piece.load_image()
+                piece.value = 9
+                move_data['promotion_from'] = 'pawn'
+                move_data['promoted_to'] = 'queen'
 
         # NEW: Save move to history
         self.move_history.append(move_data)
@@ -568,18 +574,35 @@ class ChessGame:
             self.current_turn = 'black' if self.current_turn == 'white' else 'white'
             self.turns += 1
     
+    def make_test_move(self, piece, new_pos):
+        """Make a TEST move for AI evaluation - doesn't modify game state or history"""
+        old_row, old_col = piece.position
+        new_row, new_col = new_pos
+
+        # Handle castling - skip for test moves
+        if piece.type == 'king' and abs(new_col - old_col) == 2:
+            return
+        
+        # Handle en passant
+        if piece.type == 'pawn' and self.en_passant_target == new_pos:
+            # Remove the captured pawn
+            direction = -1 if piece.color == 'white' else 1
+            captured_pawn_row = new_row - direction
+            self.board[captured_pawn_row][new_col] = None
+        
+        # Move the piece
+        self.board[old_row][old_col] = None
+        self.board[new_row][new_col] = piece
+        piece.position = new_pos
+    
     # NEW: Undo functionality
     def undo_move(self):
         """Undo the last move"""
-        if not self.move_history or self.game_over:
+        if not self.move_history:
             return
         
         # Only allow undo on player's turn and when not promoting
-        if self.current_turn != 'white' or self.promoting_pawn:
-            return
-        
-        # Pop the last move (player's move)
-        if len(self.move_history) < 1:
+        if self.current_turn != self.color or self.promoting_pawn or self.game_over:
             return
         
         # Undo AI's move first if it exists
@@ -588,14 +611,15 @@ class ChessGame:
             self._undo_single_move(ai_move)
         
         # Undo player's move
-        player_move = self.move_history.pop()
-        self._undo_single_move(player_move)
+        if len(self.move_history) >= 1:
+            player_move = self.move_history.pop()
+            self._undo_single_move(player_move)
         
-        self.current_turn = 'white'
+        self.current_turn = self.color
         self.turns = max(1, self.turns - 2)
     
     def _undo_single_move(self, move_data):
-        """Undo a single move from move data"""
+        """PRIVATE method for undo_move - undoes a single move from move data"""
         piece = move_data['piece']
         old_pos = move_data['old_pos']
         new_pos = move_data['new_pos']
@@ -605,6 +629,7 @@ class ChessGame:
         if move_data['promotion_from']:
             piece.type = move_data['promotion_from']
             piece.image = piece.load_image()
+            piece.value = piece.get_value()
         
         # Move piece back
         self.board[new_pos[0]][new_pos[1]] = None
@@ -643,24 +668,11 @@ class ChessGame:
         
         # Restore en passant target
         self.en_passant_target = move_data['en_passant_target']
-
-    def make_test_move(self, piece, new_pos):
-        """Make a move and handle special moves"""
-        old_row, old_col = piece.position
-        new_row, new_col = new_pos
-
-        # Handle castling
-        if piece.type == 'king' and abs(new_col - old_col) == 2:
-            return
-        
-        # Handle en passant
-        if piece.type == 'pawn' and self.en_passant_target == new_pos:
-            return
-        
-        # Move the piece
-        self.board[old_row][old_col] = None
-        self.board[new_row][new_col] = piece
-        piece.position = new_pos
+    
+    def undo_single_move(self, move_data):
+        """PUBLIC method for AI - undoes a single move from move data"""
+        # This is the version the AI calls
+        self._undo_single_move(move_data)
     
     def handle_promotion_click(self, pos):
         """Handle clicking on promotion choice"""
@@ -679,6 +691,7 @@ class ChessGame:
                     # Promote the pawn
                     self.promoting_pawn.type = piece_type
                     self.promoting_pawn.image = self.promoting_pawn.load_image()
+                    self.promoting_pawn.value = self.promoting_pawn.get_value()
                     
                     # NEW: Update the last move in history with promotion info
                     if self.move_history:
@@ -768,7 +781,7 @@ class ChessGame:
             if self.color == self.winner:
                 text = font.render(f"GAME OVER! Player Wins!", True, (255, 50, 50))
             elif self.winner in ['black', 'white']:
-                text = font.render(f"GAME OVER! Clifford Wins!", True, (255, 50, 50))
+                text = font.render(f"GAME OVER! {self.mode} Wins!", True, (255, 50, 50))
             else:
                 text = font.render(f"GAME OVER! Nobody Wins! (Stalemate)", True, (255, 50, 50))
             text_rect = text.get_rect(center=(self.screen_width // 2, self.board_offset_y - 60))
@@ -782,7 +795,7 @@ class ChessGame:
             if self.current_turn == 'white':
                 turn_text = "Player's Turn"
             else:
-                turn_text = "Clifford's Turn"
+                turn_text = str(self.mode) + "'s Turn"
             if self.is_in_check(self.current_turn):
                 turn_text += " - CHECK!"
             text = font.render(turn_text, True, (255, 255, 255))
@@ -796,19 +809,19 @@ class ChessGame:
         piece_size = 50
         padding = 5
         start_x_left = self.board_offset_x - 250
-        start_x_right = self.board_offset_x + SQUARE_SIZE * 8 - 820
+        start_x_right = self.board_offset_x + SQUARE_SIZE * 8 + 20
         start_y = self.board_offset_y
         
         font = pygame.font.Font(None, 28)
         if self.color == 'white':
-            label = font.render("Player value:  " + str(self.get_value('white') - self.get_value('black')), True, (255, 255, 255))
+            label = font.render("Player value: " + str(self.get_value('white') - self.get_value('black')), True, (255, 255, 255))
         else:
-            label = font.render("Player value:  " + str(self.get_value('black') - self.get_value('white')), True, (255, 255, 255))
-        self.screen.blit(label, (start_x_left - 20, start_y - 80))
+            label = font.render("Player value: " + str(self.get_value('black') - self.get_value('white')), True, (255, 255, 255))
+        self.screen.blit(label, (start_x_left, start_y - 80))
         
         # Draw white's captures (left side)
         label = font.render("White captured:", True, (255, 255, 255))
-        self.screen.blit(label, (start_x_left - 120, start_y - 30))
+        self.screen.blit(label, (start_x_left, start_y - 30))
         
         for i, piece in enumerate(self.white_captured):
             y_pos = start_y + (i * (piece_size + padding))
@@ -827,16 +840,16 @@ class ChessGame:
     # NEW: Draw undo button
     def draw_undo_button(self):
         """Draw the undo button"""
-        if not self.move_history or self.current_turn != 'white' or self.game_over or self.promoting_pawn:
+        if not self.move_history or self.current_turn != self.color or self.game_over or self.promoting_pawn:
             self.undo_button_rect = None
             return
         
         button_width = 120
         button_height = 40
         button_x = self.screen_width // 2 - button_width // 2
-        button_y = self.board_offset_y
+        button_y = self.board_offset_y + SQUARE_SIZE * 8 + 30
         
-        self.undo_button_rect = pygame.Rect(button_x + 500, button_y, button_width, button_height)
+        self.undo_button_rect = pygame.Rect(button_x + 400, button_y - 770, button_width, button_height)
         
         # Draw button background
         pygame.draw.rect(self.screen, (70, 70, 70), self.undo_button_rect)
@@ -892,14 +905,19 @@ class ChessGame:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
-                elif event.type == pygame.MOUSEBUTTONDOWN and self.current_turn == 'white' \
+                elif event.type == pygame.MOUSEBUTTONDOWN and self.current_turn == self.color \
                 and not self.game_over:
                     if event.button == 1:
                         self.handle_click(event.pos)
-                if self.current_turn == 'black' and not self.game_over:
+                if self.current_turn == self.color_ai and not self.game_over and self.mode == 'tars':
                     self.draw()
-                    #time.sleep(0.5)
-                    ai = bot.AI(self, 'black')
+                    time.sleep(0.5)
+                    ai = bot.AI(self, self.color_ai)
+                    ai.play(self)
+                if self.current_turn == self.color_ai and not self.game_over and self.mode == 'clifford':
+                    self.draw()
+                    time.sleep(0.5)
+                    ai = machine.AI(self, self.color_ai)
                     ai.play(self)
             self.draw()
             self.clock.tick(60)
@@ -907,6 +925,15 @@ class ChessGame:
 
 
 def main():
+    if len(sys.argv) == 1 not in ['clifford', 'tars', '-h']:
+        print("\nError: mode not selected / invalid. \nRun ./chess.py -h for help.")
+        return
+    if sys.argv[1] == '-h':
+        print("\nChess game that can be played against a bot. \n"
+        "USAGE\n  ./chess.py [OPTIONS]\nOPTIONS\n  -h          print the usage and quit.\n"
+        "  tars        play against an algorithmic bot.\n"
+        "  clifford    play against a deep-learning robot. [WIP]")
+        return
     game = ChessGame()
     game.run()
 
