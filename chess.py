@@ -2,7 +2,6 @@
 
 import pygame
 import bot
-import machine
 import time
 import sys
 
@@ -898,6 +897,21 @@ class ChessGame:
             img = pygame.transform.scale(img, (60, 70))
             self.screen.blit(img, (x + 10, start_y + 5))
     
+    def reset(self):
+
+        self.setup_board()
+        self.current_turn = 'white'
+        self.game_over = False
+        self.winner = None
+        self.turns = 1
+        self.blacks_value = 0
+        self.whites_value = 0
+        self.move_history = []
+        self.white_captured = []
+        self.black_captured = []
+        self.blacks_value = self.get_value('black')
+        self.whites_value = self.get_value('white')
+
     def run(self):
         """Main game loop"""
         running = True
@@ -909,16 +923,17 @@ class ChessGame:
                 and not self.game_over:
                     if event.button == 1:
                         self.handle_click(event.pos)
-                if self.current_turn == self.color_ai and not self.game_over and self.mode == 'tars':
-                    self.draw()
-                    time.sleep(0.5)
-                    ai = bot.AI(self, self.color_ai)
-                    ai.play(self)
-                if self.current_turn == self.color_ai and not self.game_over and self.mode == 'clifford':
-                    self.draw()
-                    time.sleep(0.5)
-                    ai = machine.AI(self, self.color_ai)
-                    ai.play(self)
+            if self.current_turn == self.color_ai and not self.game_over and self.mode == 'tars':
+                self.draw()
+                time.sleep(0.5)
+                ai = bot.AI(self, self.color_ai)
+                ai.play(self)
+            if self.current_turn == self.color_ai and not self.game_over and self.mode == 'clifford':
+                return
+                self.draw()
+                time.sleep(0.5)
+                #ai = machine.AI(self, self.color_ai)
+                ai.play(self)
             self.draw()
             self.clock.tick(60)
         pygame.quit()
