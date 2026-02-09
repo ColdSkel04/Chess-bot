@@ -4,6 +4,7 @@ import pygame
 import bot
 import time
 import sys
+import machine
 
 SQUARE_SIZE = 80
 PIECE_WIDTH = 45
@@ -915,6 +916,10 @@ class ChessGame:
     def run(self):
         """Main game loop"""
         running = True
+        if self.mode == 'tars':
+            ai = bot.AI(self, self.color_ai)
+        else:
+            ai = machine.AI_machine(self.color_ai)
         while running:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -923,16 +928,9 @@ class ChessGame:
                 and not self.game_over:
                     if event.button == 1:
                         self.handle_click(event.pos)
-            if self.current_turn == self.color_ai and not self.game_over and self.mode == 'tars':
+            if self.current_turn == self.color_ai and not self.game_over:
                 self.draw()
                 time.sleep(0.5)
-                ai = bot.AI(self, self.color_ai)
-                ai.play(self)
-            if self.current_turn == self.color_ai and not self.game_over and self.mode == 'clifford':
-                return
-                self.draw()
-                time.sleep(0.5)
-                #ai = machine.AI(self, self.color_ai)
                 ai.play(self)
             self.draw()
             self.clock.tick(60)
@@ -940,7 +938,7 @@ class ChessGame:
 
 
 def main():
-    if len(sys.argv) == 1 not in ['clifford', 'tars', '-h']:
+    if len(sys.argv) <= 1 or sys.argv[1] not in ['clifford', 'tars', '-h']:
         print("\nError: mode not selected / invalid. \nRun ./chess.py -h for help.")
         return
     if sys.argv[1] == '-h':
