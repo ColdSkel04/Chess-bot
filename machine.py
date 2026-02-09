@@ -5,16 +5,26 @@ import torch
 import torch.nn as nn
 import pygame
 import sys
+from pathlib import Path
 
 SQUARE_SIZE = 80
 PIECE_WIDTH = 45
 PIECE_HEIGHT = 75
+RED     = "\033[31m"
+GREEN   = "\033[32m"
+YELLOW  = "\033[33m"
+BLUE    = "\033[34m"
+MAGENTA = "\033[35m"
+CYAN    = "\033[36m"
+RESET   = "\033[0m"
 
-class AI:
 
-    def __init__(self):
+class AI_machine:
+
+    def __init__(self, color = 'None'):
 
         self.reward = 0
+        self.color = color
         return
     
     def get_allies(self, game):
@@ -49,6 +59,34 @@ class AI:
             for move in game.get_legal_moves(piece):
                 moves.append((piece, move))
         return moves
+    
+    def get_cell_content(self, game, cell):
+
+        for row in range(8):
+            for col in range(8):
+                if (row, col) == cell:
+                    return game.board[row][col]
+        return None
+    
+    def play(self, game):
+
+        net = ChessNet()
+
+        if Path("chess_net.pth").exists():
+            net.load_state_dict(torch.load("chess_net.pth"))
+        moves = self.get_all_moves(game, self.color)
+        best_score = -999
+        best_move = None
+        for piece, move in moves:
+            game.make_move(piece, move)
+            game.current_turn = self.color
+            score = net(self.board_to_tensor(game)).item()
+            game.undo_single_move(game.move_history[-1])
+            game.move_history.pop()
+            if score > best_score:
+                best_score = score
+                best_move = piece, move
+        game.make_move(best_move[0], best_move[1])
 
     def board_to_tensor(self, game):
         
@@ -68,16 +106,18 @@ class AI:
             return tensor
         return -tensor
 
-    def choose_move(self, game, net, color, epsilon = 0.3):
+    def choose_move(self, game, net, color, epsilon = 0.2):
         
+        moves = self.get_all_moves(game, color)
         if random.random() < epsilon:
-            return random.choice(self.get_all_moves(game, color))
+            return random.choice(moves)
         best_score = -999
         best_move = None
-        for piece, move in self.get_all_moves(game, color):
+        for piece, move in moves:
             game.make_move(piece, move, check_game_over = False)
             score = net(self.board_to_tensor(game)).item()
-            game.undo_single_move(game.move_history[len(game.move_history) - 1])
+            game.undo_single_move(game.move_history[-1])
+            game.move_history.pop()
             if score > best_score:
                 best_score = score
                 best_move = piece, move
@@ -95,10 +135,9 @@ class AI:
                 game.check_if_game_is_over()
                 break
             piece, move = self.choose_move(game, net, game.current_turn)
-            content = game.board[move[0]][move[1]]
             game.make_move(piece, move)
-            game.current_turn = 'black' if game.current_turn == 'white' else 'white'
-        winner = game.winner
+            game.turns += 1
+        winner = game.winner    
         return memory, winner
     
     def sim_game_and_show(self, game, net):
@@ -113,14 +152,13 @@ class AI:
                 game.check_if_game_is_over()
                 break
             piece, move = self.choose_move(game, net, game.current_turn)
-            content = game.board[move[0]][move[1]]
             game.make_move(piece, move)
-            game.current_turn = 'black' if game.current_turn == 'white' else 'white'
+            game.turns += 1
             game.draw()
         winner = game.winner
         return memory, winner
     
-    def train_from_game(self, net, optimizer, states, reward):
+    def train_from_game(self, game, net, optimizer, states, reward):
 
         loss_fn = torch.nn.MSELoss()
         total_loss = 0
@@ -129,38 +167,45 @@ class AI:
         for i, state in enumerate(states):
             prediction = net(state)
             current_reward = reward if i % 2 == 0 else -reward
+            current_reward = -current_reward if current_reward == 0.10 else current_reward
             discounted_reward = current_reward * (discount ** (len(states) - i - 1))
             target = torch.tensor([discounted_reward], dtype = torch.float32)
             total_loss += loss_fn(prediction, target)
         optimizer.zero_grad()
         total_loss.backward()
         optimizer.step()
-        winner_name = "White" if reward == 1 else ("Black" if reward == -1 else "Draw")
+        winner_name = "White" if game.winner == "white" else ("Black" if game.winner == "black" else "Draw")
         avg_loss = total_loss.item() / len(states)
-        print(f"Winner: {winner_name:5} | Moves: {len(states):3} | Total Loss: {total_loss.item():8.2f} | Avg Loss/Move: {avg_loss:.4}")
+        if winner_name == "White":
+            print(f"{YELLOW}Winner: {winner_name:5}{RESET} ", end = "")
+        elif winner_name == "Black":
+            print(f"{BLUE}Winner: {winner_name:5}{RESET} ", end = "")
+        else:
+            print(f"Winner: {winner_name:5} ", end = "")
+        print(f"| Moves: {len(states):3} | Total Loss: {total_loss.item():6.2f} | Avg Loss/Move: {avg_loss:4.2f} | Ending: {game.ending:18.18s}")
 
-    def give_reward(self, winner):
+    def game_reward(self, winner):
 
         if winner == 'white':
             self.reward += 1
         if winner == 'black':
             self.reward -= 1
         if winner == 'nobody':
-            self.reward += 0
+            self.reward -= 0.3
 
     def training_loop(self, game, net, optimizer):
 
         states, winner = self.sim_game(game, net)
-        self.give_reward(winner)
-        self.train_from_game(net, optimizer, states, self.reward)
+        self.game_reward(winner)
+        self.train_from_game(game, net, optimizer, states, self.reward)
         self.reward = 0
         game.reset()
 
     def training_loop_and_show(self, game, net, optimizer):
 
         states, winner = self.sim_game_and_show(game, net)
-        self.give_reward(winner)
-        self.train_from_game(net, optimizer, states, self.reward)
+        self.game_reward(winner)
+        self.train_from_game(game, net, optimizer, states, self.reward)
         self.reward = 0
         game.reset()
             
@@ -309,17 +354,18 @@ class Piece:
                     moves.append((new_row, new_col))
         return moves
 
-class ChessGame:
+class ChessGameMachine:
 
     def __init__(self):
         
         self.show = self.show_training()
-        self.board = [[None for i in range(8)] for i in range(8)]
         self.current_turn = 'white'
         self.game_over = False
         self.winner = None
         self.last_move = None
         self.en_passant_target = None
+        self.turns = 1
+        self.ending = 'None.'
         
         # Move history for undo functionality
         self.move_history = []
@@ -345,6 +391,8 @@ class ChessGame:
         return False
     
     def setup_board(self):
+
+        self.board = [[None for i in range(8)] for i in range(8)]
 
         # Pawns
         for col in range(8):
@@ -537,6 +585,11 @@ class ChessGame:
         blacks = self.get_black_pieces()
         whites = self.get_white_pieces()
 
+        if self.turns >= 250:
+            self.winner = 'nobody'
+            self.game_over = True
+            self.ending = 'Max turns reached.'
+            return
         for piece in blacks:
             if len(self.get_legal_moves(piece)) != 0:
                 checkmate = False
@@ -544,10 +597,12 @@ class ChessGame:
         if checkmate and self.is_in_check('black'):
             self.winner = 'white'
             self.game_over = True
+            self.ending = 'White won.'
             return
         if checkmate and not self.is_in_check('black'):
             self.winner = 'nobody'
             self.game_over = True
+            self.ending = 'Stalemate.'
             return
         checkmate = True
         for piece in whites:
@@ -557,10 +612,12 @@ class ChessGame:
         if checkmate and self.is_in_check('white'):
             self.winner = 'black'
             self.game_over = True
+            self.ending = 'Black won.'
             return
         if checkmate and not self.is_in_check('white'):
             self.winner = 'nobody'
             self.game_over = True
+            self.ending = 'Stalemate.'
             return
         for piece in whites:
             if piece.type in ['pawn', 'rook', 'queen'] or (piece.type == 'bishop' and len(whites) >= 3):
@@ -570,6 +627,7 @@ class ChessGame:
                 return
         self.winner = 'nobody'
         self.game_over = True
+        self.ending = 'Lack of material.'
     
     def make_move(self, piece, new_pos, check_game_over = True):
 
@@ -662,6 +720,7 @@ class ChessGame:
 
         # Save move to history
         self.move_history.append(move_data)
+        self.current_turn = 'black' if self.current_turn == 'white' else 'white'
         if check_game_over:
             self.check_if_game_is_over()
     
@@ -715,8 +774,9 @@ class ChessGame:
         
         # Restore en passant target
         self.en_passant_target = move_data['en_passant_target']
-        self.game_over = False  # Reset game_over flag
+        self.game_over = False
         self.winner = None
+        self.current_turn = 'black' if self.current_turn == 'white' else 'white'
     
     def draw(self):
 
@@ -764,7 +824,7 @@ class ChessGame:
             elif self.winner == 'black':
                 text = font.render(f"GAME OVER! Black Wins!", True, (255, 50, 50))
             else:
-                text = font.render(f"GAME OVER! Nobody Wins! (Stalemate)", True, (255, 50, 50))
+                text = font.render(f"GAME OVER! Nobody Wins!", True, (255, 50, 50))
             text_rect = text.get_rect(center=(self.screen_width // 2, self.board_offset_y - 60))
             
             bg_rect = text_rect.inflate(40, 20)
@@ -794,20 +854,23 @@ class ChessGame:
     
     def reset(self):
 
-        self.setup_board()
         self.current_turn = 'white'
         self.game_over = False
         self.winner = None
+        self.turns = 1
+        self.ending = 'None.'
         self.move_history = []
         self.white_captured = []
         self.black_captured = []
+        self.setup_board()
 
-    def run(self):
+    def run_training(self):
 
-        ai = AI()
+        ai = AI_machine()
         net = ChessNet()
         optimizer = torch.optim.Adam(net.parameters(), lr = 0.0001)
-        net.load_state_dict(torch.load("chess_net.pth"))
+        if Path("chess_net.pth").exists():
+            net.load_state_dict(torch.load("chess_net.pth"))
         episode = 0
 
         while True:
@@ -815,14 +878,15 @@ class ChessGame:
             episode += 1
             if episode % 50 == 0:
                 torch.save(net.state_dict(), "chess_net.pth")
-                print(f"Episode {episode} completed")
+                print(f"{RED}Episode {episode} completed{RESET}")
 
     def run_and_show(self):
 
-        ai = AI()
+        ai = AI_machine()
         net = ChessNet()
         optimizer = torch.optim.Adam(net.parameters(), lr = 0.0001)
-        net.load_state_dict(torch.load("chess_net.pth"))
+        if Path("chess_net.pth").exists():
+            net.load_state_dict(torch.load("chess_net.pth"))
         episode = 0
 
         while True:
@@ -831,15 +895,16 @@ class ChessGame:
             episode += 1
             if episode % 50 == 0:
                 torch.save(net.state_dict(), "chess_net.pth")
-                print(f"Episode {episode} completed.")
+                print(f"{RED}Episode {episode} completed.{RESET}")
             self.clock.tick(60)
 
-def main():
+def main_training():
 
-    game = ChessGame()
+    game = ChessGameMachine()
     if game.show:
         game.run_and_show()
     else:
-        game.run()
+        game.run_training()
 
-main()
+if sys.argv[0] == './machine.py':
+    main_training()
